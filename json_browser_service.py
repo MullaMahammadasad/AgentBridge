@@ -36,14 +36,16 @@ async def lifespan(app: FastAPI):
     
     logger.info("Starting JSON Browser Service...")
     
-    # Initialize both instances
-    fresh_browser = JSONBrowser(mode="fresh", headless=False, client_id="fresh_instance")
-    persistent_browser = JSONBrowser(mode="persistent", headless=False, client_id="persistent_instance")
+    # Initialize both instances (removed client_id parameter)
+    fresh_browser = JSONBrowser(mode="fresh", headless=False)
+    persistent_browser = JSONBrowser(mode="persistent", headless=False)
     
     await fresh_browser.initialize()
     await persistent_browser.initialize()
     
     logger.info("Both Chromium instances ready")
+    logger.info(f"Fresh browser client_id: {fresh_browser.client_id}")
+    logger.info(f"Persistent browser client_id: {persistent_browser.client_id}")
     
     yield
     
@@ -86,8 +88,8 @@ async def health() -> Dict:
     return {
         "status": "healthy",
         "active_mode": active_mode,
-        "fresh_browser": fresh_browser.get_stats() if fresh_browser else None,
-        "persistent_browser": persistent_browser.get_stats() if persistent_browser else None
+        "fresh_browser": {"mode": "fresh", "client_id": fresh_browser.client_id} if fresh_browser else None,
+        "persistent_browser": {"mode": "persistent", "client_id": persistent_browser.client_id} if persistent_browser else None
     }
 
 
@@ -98,7 +100,7 @@ async def navigate(req: NavigateRequest) -> Dict:
     """Navigate to URL"""
     try:
         browser = _get_active_browser()
-        result = await browser.navigate(req.url, timeout=req.timeout)
+        result = await browser.navigate(req.url)
         return result
     except Exception as e:
         logger.error(f"Navigate error: {e}")
@@ -220,6 +222,7 @@ async def close_tab(page_id: str = Query(...)) -> Dict:
     """Close tab"""
     try:
         browser = _get_active_browser()
+        # Note: Need to add close_tab method to JSONBrowser if it doesn't exist
         result = await browser.close_tab(page_id)
         return result
     except Exception as e:
@@ -257,7 +260,10 @@ async def switch_chromium_mode(req: ChromiumModeRequest) -> Dict:
         "success": True,
         "old_mode": old_mode,
         "new_mode": req.mode,
-        "active_browser": browser.get_stats()
+        "active_browser": {
+            "mode": req.mode,
+            "client_id": browser.client_id
+        }
     }
 
 
@@ -309,8 +315,8 @@ async def websocket_sync(websocket: WebSocket):
 if __name__ == "__main__":
     import sys
     
-    fresh_port = int(sys.argv[1]) if len(sys.argv) > 1 else 5001
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
     
-    logger.info(f"Starting service on port {fresh_port}")
+    logger.info(f"Starting service on port {port}")
     
-    uvicorn.run(app, host="0.0.0.0", port=fresh_port)
+    uvicorn.run(app, host="0.0.0.0", port=port)
