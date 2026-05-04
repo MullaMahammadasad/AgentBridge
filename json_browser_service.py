@@ -31,9 +31,9 @@ active_mode: str = "fresh"
 
 
 # Request models
-class WaitForRequest(BaseModel):
+class KeyRequest(BaseModel):
     selector: str
-    timeout: int = 5000
+    key: str
 
 
 @asynccontextmanager
@@ -114,61 +114,6 @@ async def navigate(req: NavigateRequest) -> Dict:
         raise HTTPException(status_code=400, detail=str(e))
 
 
-# ===== Wait For Element =====
-
-@app.post("/wait_for")
-async def wait_for(req: WaitForRequest) -> Dict:
-    """Wait for element to appear"""
-    try:
-        browser = _get_active_browser()
-        
-        # Wait for element with timeout
-        start_time = time.time()
-        timeout_seconds = req.timeout / 1000  # Convert ms to seconds
-        
-        while (time.time() - start_time) < timeout_seconds:
-            try:
-                # Try to find element using execute_script
-                script = f"""
-                try {{
-                    const elem = document.querySelector('{req.selector}');
-                    return elem !== null && elem.offsetHeight > 0;
-                }} catch (e) {{
-                    return false;
-                }}
-                """
-                result = await browser.execute_script(script)
-                
-                if result.get("action_result"):
-                    return {
-                        "success": True,
-                        "action": "wait_for",
-                        "selector": req.selector,
-                        "message": "Element found"
-                    }
-            except Exception as inner_e:
-                logger.debug(f"Wait check error: {inner_e}")
-            
-            # Wait a bit before retrying
-            await asyncio.sleep(0.3)
-        
-        # Timeout reached
-        return {
-            "success": False,
-            "action": "wait_for",
-            "selector": req.selector,
-            "error": f"Element not found after {req.timeout}ms"
-        }
-    
-    except Exception as e:
-        logger.error(f"Wait for error: {e}")
-        return {
-            "success": False,
-            "action": "wait_for",
-            "error": str(e)
-        }
-
-
 # ===== Click =====
 
 @app.post("/click")
@@ -195,6 +140,66 @@ async def type_text(req: TypeRequest) -> Dict:
     except Exception as e:
         logger.error(f"Type error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# ===== Key Press =====
+
+@app.post("/key")
+async def press_key(req: KeyRequest) -> Dict:
+    """Press a key in an element"""
+    try:
+        browser = _get_active_browser()
+        
+        # Map common key names to keyboard codes
+        key_map = {
+            "Enter": "Enter",
+            "Tab": "Tab",
+            "Escape": "Escape",
+            "ArrowUp": "ArrowUp",
+            "ArrowDown": "ArrowDown",
+            "ArrowLeft": "ArrowLeft",
+            "ArrowRight": "ArrowRight",
+            "Backspace": "Backspace",
+            "Delete": "Delete",
+            "Space": " ",
+            " ": " ",
+        }
+        
+        key = key_map.get(req.key, req.key)
+        
+        # Execute keyboard event
+        script = f"""
+        const elem = document.querySelector('{req.selector}');
+        if (elem) {{
+            elem.focus();
+            const event = new KeyboardEvent('keydown', {{
+                key: '{key}',
+                code: '{req.key}',
+                keyCode: {ord(key) if len(key) == 1 else 13},
+                bubbles: true
+            }});
+            elem.dispatchEvent(event);
+            return true;
+        }}
+        return false;
+        """
+        
+        result = await browser.execute_script(script)
+        
+        return {
+            "success": result.get("action_result", False),
+            "action": "key",
+            "selector": req.selector,
+            "key": req.key
+        }
+    
+    except Exception as e:
+        logger.error(f"Key press error: {e}")
+        return {
+            "success": False,
+            "action": "key",
+            "error": str(e)
+        }
 
 
 # ===== Extract =====
@@ -284,7 +289,6 @@ async def close_tab(page_id: str = Query(...)) -> Dict:
     """Close tab"""
     try:
         browser = _get_active_browser()
-        # Note: Need to add close_tab method to JSONBrowser if it doesn't exist
         result = await browser.close_tab(page_id)
         return result
     except Exception as e:
