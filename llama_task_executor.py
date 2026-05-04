@@ -186,10 +186,13 @@ Return ONLY valid JSON array:"""
         url = f"{self.browser_api}{endpoint}"
         
         try:
+            # Use longer timeout for screenshot
+            timeout = 30 if action_type == "screenshot" else 15
+            
             if method == "GET":
-                resp = self.session.get(url, timeout=15)
+                resp = self.session.get(url, timeout=timeout)
             else:
-                resp = self.session.post(url, json=body, timeout=15)
+                resp = self.session.post(url, json=body, timeout=timeout)
             
             return resp.json()
         except Exception as e:
@@ -231,9 +234,11 @@ Return ONLY valid JSON array:"""
             elif action_type == "extract":
                 print(f"   📊 Extracting data...")
             elif action_type == "screenshot":
-                print(f"   📸 Taking screenshot...")
+                print(f"   📸 Taking screenshot (may take a moment)...")
             elif action_type == "switch_mode":
                 print(f"   🔄 Switching to: {params.get('mode')} mode")
+            elif action_type == "get_mode":
+                print(f"   ℹ️  Getting current mode...")
             
             # Execute
             result = self.execute_action(action)
@@ -269,6 +274,10 @@ Return ONLY valid JSON array:"""
                         print(f"      URL: {url}")
                     if title:
                         print(f"      Title: {title}")
+                
+                # Show current mode
+                if action_type == "get_mode" and "active_mode" in result:
+                    print(f"      Mode: {result.get('active_mode')}")
             else:
                 error = result.get("error", "Unknown error")
                 print(f"   ❌ Failed: {error}")
@@ -315,7 +324,6 @@ Return ONLY valid JSON array:"""
         """Run example tasks"""
         examples = [
             "Navigate to example.com",
-            "Take a screenshot of the current page",
             "Extract all links from the page",
             "Create a new tab",
             "Switch to persistent mode",
