@@ -1,0 +1,73 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>AI Sandbox</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 20px; }
+      .box { border: 1px solid #ddd; padding: 12px; margin: 12px 0; }
+      #hidden { display:none; }
+    </style>
+  </head>
+  <body>
+    <h1 id="title">AI Sandbox</h1>
+
+    <div class="box">
+      <h2>Form</h2>
+      <label>Username: <input id="username" /></label><br/><br/>
+      <label>Password: <input id="password" type="password" /></label><br/><br/>
+      <button id="loginBtn">Login</button>
+      <div id="loginResult"></div>
+    </div>
+
+    <div class="box">
+      <h2>Dynamic content</h2>
+      <button id="loadBtn">Load after 2s</button>
+      <div id="dynamic"></div>
+    </div>
+
+    <div class="box">
+      <h2>Checkbox + dropdown</h2>
+      <label><input id="check1" type="checkbox" /> Accept</label><br/><br/>
+      <select id="choice">
+        <option value="">--select--</option>
+        <option value="one">One</option>
+        <option value="two">Two</option>
+      </select>
+      <div id="choiceOut"></div>
+    </div>
+
+    <div class="box">
+      <h2>Alert</h2>
+      <button id="alertBtn">Show alert</button>
+    </div>
+
+    <div class="box">
+      <h2>Links / new tab</h2>
+      <a id="page2" href="/page2.html">Go to page2</a>
+      <a id="newtab" href="https://example.com" target="_blank">Open example.com in new tab</a>
+    </div>
+
+    <script>
+      document.getElementById("loginBtn").onclick = () => {
+        const u = document.getElementById("username").value;
+        const p = document.getElementById("password").value;
+        document.getElementById("loginResult").textContent =
+          (u === "admin" && p === "admin") ? "OK" : "FAIL";
+      };
+
+      document.getElementById("loadBtn").onclick = () => {
+        document.getElementById("dynamic").textContent = "Loading...";
+        setTimeout(() => {
+          document.getElementById("dynamic").textContent = "Loaded!";
+        }, 2000);
+      };
+
+      document.getElementById("choice").onchange = (e) => {
+        document.getElementById("choiceOut").textContent = "Selected: " + e.target.value;
+      };
+
+      document.getElementById("alertBtn").onclick = () => alert("Hello from sandbox!");
+    </script>
+  </body>
+</html>
