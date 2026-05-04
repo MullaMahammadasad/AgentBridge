@@ -60,18 +60,19 @@ class LlamaTaskExecutor:
 
 IMPORTANT RULES:
 1. Always ensure URLs start with 'https://' or 'http://'
-2. Use only valid CSS selectors
+2. Use only valid CSS selectors - be specific and robust
 3. Return ONLY the JSON array, no other text
 4. Keep responses concise
-5. For link extraction, use selector 'a'
-6. For text input, use 'text' parameter (not 'value')
-7. For text patterns, use appropriate CSS selectors
-8. Add wait_for actions before typing to ensure elements are ready
-9. Use wait_for with timeout 10000 for elements that need loading time
+5. For Google search: use 'textarea[name="q"]' or 'input.gLFyf' or 'input[title="Search"]'
+6. For links: use selector 'a'
+7. For text input, use 'text' parameter (not 'value')
+8. Add wait_for actions ONLY before critical interactions
+9. Use wait_for with timeout 8000 for elements
+10. For Google specifically, the search box might be a textarea or input with class gLFyf
 
 Available actions:
 - navigate: navigate to a URL
-- wait_for: wait for an element to be visible (timeout in ms, default 5000)
+- wait_for: wait for an element to be visible (timeout in ms)
 - click: click an element by CSS selector
 - type: type text in an element by CSS selector (use 'text' key)
 - extract: extract data using CSS selectors as patterns
@@ -88,9 +89,8 @@ Generate a JSON action list. Examples:
 For "navigate to google.com and search for python":
 [
   {{"action": "navigate", "params": {{"url": "https://google.com"}}}},
-  {{"action": "wait_for", "params": {{"selector": "input[name='q']", "timeout": 10000}}}},
-  {{"action": "type", "params": {{"selector": "input[name='q']", "text": "python"}}}},
-  {{"action": "click", "params": {{"selector": "button[type='submit']"}}}}
+  {{"action": "type", "params": {{"selector": "textarea[name='q'], input.gLFyf, input[title='Search']", "text": "python"}}}},
+  {{"action": "click", "params": {{"selector": "button[type='submit'], input[type='submit']"}}}}
 ]
 
 For "navigate to example.com":
@@ -103,7 +103,7 @@ For "take a screenshot":
   {{"action": "screenshot", "params": {{}}}}
 ]
 
-For "extract all links from current page":
+For "extract all links":
 [
   {{"action": "extract", "params": {{"patterns": {{"links": "a"}}}}}}
 ]
@@ -261,7 +261,7 @@ Return ONLY valid JSON array:"""
             elif action_type == "get_mode":
                 print(f"   ℹ️  Getting current mode...")
             elif action_type == "wait_for":
-                print(f"   ⏳ Waiting for: {params.get('selector')} (timeout: {params.get('timeout')}ms)")
+                print(f"   ⏳ Waiting for: {params.get('selector')} (up to {params.get('timeout', 5000)}ms)")
             
             # Execute
             result = self.execute_action(action)
@@ -320,10 +320,10 @@ Return ONLY valid JSON array:"""
         print("="*60)
         print("\nGive commands in natural language:")
         print("  'navigate to google.com and search for python'")
+        print("  'go to example.com'")
         print("  'take a screenshot'")
         print("  'extract all links'")
         print("  'create 3 new tabs'")
-        print("  'switch to persistent mode'")
         print("  'quit' to exit\n")
         
         while True:
@@ -350,9 +350,8 @@ Return ONLY valid JSON array:"""
         examples = [
             "Navigate to example.com",
             "Extract all links from the page",
-            "Create 3 new tabs",
+            "Create 2 new tabs",
             "Switch to persistent mode",
-            "Get current browser mode",
             "List all open tabs",
         ]
         
