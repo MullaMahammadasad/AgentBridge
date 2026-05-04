@@ -1,0 +1,312 @@
+"""
+Llama-Powered Task Executor for JSON Browser
+Uses Ollama (local Llama) to understand natural language tasks and execute them
+"""
+
+import requests
+import json
+import time
+import sys
+from typing import List, Dict, Any
+
+# Configuration
+BROWSER_API_URL = "http://127.0.0.1:8000"
+OLLAMA_API_URL = "http://127.0.0.1:11434/api/generate"
+OLLAMA_MODEL = "qwen2.5:1.5b-instruct"
+
+class LlamaTaskExecutor:
+    """Execute tasks on JSON Browser using Llama for natural language understanding"""
+    
+    def __init__(self):
+        self.browser_api = BROWSER_API_URL
+        self.ollama_api = OLLAMA_API_URL
+        self.model = OLLAMA_MODEL
+        self.session = requests.Session()
+        
+    def check_services(self) -> bool:
+        """Check if both services are running"""
+        try:
+            # Check Browser Service
+            resp = self.session.get(f"{self.browser_api}/health", timeout=2)
+            if resp.status_code != 200:
+                print("❌ Browser Service not responding")
+                return False
+            print("✅ Browser Service: OK")
+        except Exception as e:
+            print(f"❌ Browser Service Error: {e}")
+            return False
+        
+        try:
+            # Check Ollama Service
+            resp = self.session.post(
+                f"{self.ollama_api}",
+                json={"model": self.model, "prompt": "test", "stream": False},
+                timeout=5
+            )
+            if resp.status_code != 200:
+                print("❌ Ollama Service not responding")
+                return False
+            print(f"✅ Ollama Service: OK (Model: {self.model})")
+        except Exception as e:
+            print(f"❌ Ollama Service Error: {e}")
+            return False
+        
+        return True
+    
+    def ask_llama(self, task: str) -> List[Dict[str, Any]]:
+        """Ask Llama to generate browser actions from a task description"""
+        
+        prompt = f"""You are a web automation expert. Convert this task into JSON actions for a browser.
+
+Task: {task}
+
+Generate ONLY valid JSON array with these possible actions:
+- navigate: {{"action": "navigate", "params": {{"url": "URL"}}}}
+- click: {{"action": "click", "params": {{"selector": "CSS_SELECTOR"}}}}
+- type: {{"action": "type", "params": {{"selector": "CSS_SELECTOR", "text": "TEXT"}}}}
+- extract: {{"action": "extract", "params": {{"patterns": {{"key": "CSS_SELECTOR"}}}}}}
+- screenshot: {{"action": "screenshot", "params": {{}}}}
+- create_tab: {{"action": "create_tab", "params": {{}}}}
+- list_tabs: {{"action": "list_tabs", "params": {{}}}}
+- switch_mode: {{"action": "switch_mode", "params": {{"mode": "fresh|persistent"}}}}
+- get_mode: {{"action": "get_mode", "params": {{}}}}
+
+Return ONLY the JSON array, no other text.
+
+Example:
+[
+  {{"action": "navigate", "params": {{"url": "https://example.com"}}}},
+  {{"action": "screenshot", "params": {{}}}}
+]
+
+Generate actions for: {task}"""
+
+        print(f"🤖 {self.model} is thinking...", end="", flush=True)
+        
+        try:
+            response = self.session.post(
+                self.ollama_api,
+                json={
+                    "model": self.model,
+                    "prompt": prompt,
+                    "stream": False,
+                    "temperature": 0.3
+                },
+                timeout=30
+            )
+            
+            if response.status_code != 200:
+                print(f"\n❌ Ollama Error: {response.status_code}")
+                return []
+            
+            result = response.json()
+            response_text = result.get("response", "").strip()
+            print(" ✓")
+            
+            # Extract JSON from response
+            try:
+                # Try to find JSON array in response
+                start_idx = response_text.find('[')
+                end_idx = response_text.rfind(']') + 1
+                
+                if start_idx != -1 and end_idx > start_idx:
+                    json_str = response_text[start_idx:end_idx]
+                    actions = json.loads(json_str)
+                    return actions if isinstance(actions, list) else []
+            except json.JSONDecodeError:
+                print(f"⚠️  Could not parse JSON from response")
+                return []
+        
+        except requests.Timeout:
+            print("\n❌ Ollama timeout - model may be too large or slow")
+            return []
+        except Exception as e:
+            print(f"\n❌ Error: {e}")
+            return []
+    
+    def execute_action(self, action: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute a single browser action"""
+        
+        action_type = action.get("action", "unknown")
+        params = action.get("params", {})
+        
+        # Map action to endpoint
+        action_map = {
+            "navigate": ("POST", "/navigate", params),
+            "click": ("POST", "/click", params),
+            "type": ("POST", "/type", params),
+            "extract": ("POST", "/extract", params),
+            "screenshot": ("POST", "/screenshot", {}),
+            "create_tab": ("POST", "/tabs/create", {}),
+            "list_tabs": ("GET", "/tabs/list", {}),
+            "switch_mode": ("POST", "/chromium/mode/switch", params),
+            "get_mode": ("GET", "/chromium/mode", {}),
+        }
+        
+        if action_type not in action_map:
+            return {"success": False, "error": f"Unknown action: {action_type}"}
+        
+        method, endpoint, body = action_map[action_type]
+        url = f"{self.browser_api}{endpoint}"
+        
+        try:
+            if method == "GET":
+                resp = self.session.get(url, timeout=10)
+            else:
+                resp = self.session.post(url, json=body, timeout=10)
+            
+            return resp.json()
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+    
+    def execute_task(self, task: str) -> None:
+        """Execute a full task"""
+        print(f"\n{'='*60}")
+        print(f"🎯 Task: {task}")
+        print(f"{'='*60}\n")
+        
+        # Get actions from Llama
+        actions = self.ask_llama(task)
+        
+        if not actions:
+            print("❌ No actions generated")
+            return
+        
+        print(f"✅ Generated {len(actions)} action(s):")
+        for i, action in enumerate(actions, 1):
+            print(f"   {i}. {action.get('action', 'unknown')} {action.get('params', {})}")
+        
+        print(f"\n🚀 Executing actions...\n")
+        
+        # Execute each action
+        for i, action in enumerate(actions, 1):
+            action_type = action.get("action", "unknown")
+            params = action.get("params", {})
+            
+            print(f"[{i}/{len(actions)}] → Executing: {action_type}")
+            
+            # Add context
+            if action_type == "navigate":
+                print(f"   📍 Navigating to: {params.get('url')}")
+            elif action_type == "click":
+                print(f"   🖱️  Clicking: {params.get('selector')}")
+            elif action_type == "type":
+                print(f"   ⌨️  Typing in: {params.get('selector')}")
+            elif action_type == "extract":
+                print(f"   📊 Extracting data...")
+            elif action_type == "screenshot":
+                print(f"   📸 Taking screenshot...")
+            elif action_type == "switch_mode":
+                print(f"   🔄 Switching to: {params.get('mode')} mode")
+            
+            # Execute
+            result = self.execute_action(action)
+            
+            if result.get("success", False):
+                print(f"   ✅ Success")
+                
+                # Show extracted data if available
+                if action_type == "extract" and "action_result" in result:
+                    extracted = result["action_result"].get("extracted", {})
+                    if extracted:
+                        print(f"   📄 Extracted:")
+                        for key, value in extracted.items():
+                            if isinstance(value, str) and len(value) > 50:
+                                print(f"      {key}: {value[:50]}...")
+                            else:
+                                print(f"      {key}: {value}")
+                
+                # Show tab count if available
+                if action_type == "list_tabs" and "action_result" in result:
+                    tabs = result["action_result"].get("tabs", [])
+                    print(f"   📑 Tabs: {len(tabs)}")
+                    for tab in tabs:
+                        print(f"      - {tab.get('id')}: {tab.get('url')}")
+            else:
+                error = result.get("error", "Unknown error")
+                print(f"   ❌ Failed: {error}")
+            
+            print()
+        
+        print(f"{'='*60}")
+        print(f"✅ Task completed!")
+        print(f"{'='*60}\n")
+    
+    def interactive_mode(self) -> None:
+        """Interactive task entry mode"""
+        print("\n" + "="*60)
+        print("🤖 Llama Task Executor - Interactive Mode")
+        print("="*60)
+        print("\nGive commands in natural language:")
+        print("  'navigate to example.com'")
+        print("  'take a screenshot'")
+        print("  'create a new tab'")
+        print("  'quit' to exit\n")
+        
+        while True:
+            try:
+                task = input("🎯 Your task: ").strip()
+                
+                if task.lower() in ['quit', 'exit', 'q']:
+                    print("👋 Goodbye!")
+                    break
+                
+                if not task:
+                    continue
+                
+                self.execute_task(task)
+            
+            except KeyboardInterrupt:
+                print("\n👋 Interrupted")
+                break
+            except Exception as e:
+                print(f"❌ Error: {e}")
+    
+    def run_examples(self) -> None:
+        """Run example tasks"""
+        examples = [
+            "Navigate to example.com",
+            "Take a screenshot",
+            "Extract all links from the page",
+            "Create a new tab",
+            "Switch to persistent mode",
+            "Get current browser mode",
+            "List all open tabs",
+        ]
+        
+        print("\n" + "="*60)
+        print("🤖 Running Example Tasks")
+        print("="*60)
+        
+        for i, task in enumerate(examples, 1):
+            self.execute_task(task)
+            if i < len(examples):
+                print("⏳ Waiting before next example...\n")
+                time.sleep(2)
+
+
+def main():
+    executor = LlamaTaskExecutor()
+    
+    print("\n" + "="*60)
+    print("🤖 Llama Task Executor for JSON Browser")
+    print("="*60 + "\n")
+    
+    # Check services
+    if not executor.check_services():
+        print("\n❌ Services not available. Please ensure:")
+        print("   1. Browser Service: python json_browser_service.py")
+        print("   2. Ollama: ollama serve")
+        sys.exit(1)
+    
+    print()
+    
+    # Run mode
+    if len(sys.argv) > 1 and sys.argv[1] == "examples":
+        executor.run_examples()
+    else:
+        executor.interactive_mode()
+
+
+if __name__ == "__main__":
+    main()
