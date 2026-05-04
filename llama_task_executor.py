@@ -56,30 +56,54 @@ class LlamaTaskExecutor:
     def ask_llama(self, task: str) -> List[Dict[str, Any]]:
         """Ask Llama to generate browser actions from a task description"""
         
-        prompt = f"""You are a web automation expert. Convert this task into JSON actions for a browser.
+        prompt = f"""You are a web automation expert. Convert this task into JSON actions for a browser control system.
+
+IMPORTANT RULES:
+1. Always ensure URLs start with 'https://' or 'http://'
+2. Use only valid CSS selectors
+3. Return ONLY the JSON array, no other text
+4. Keep responses concise
+5. For link extraction, use selector 'a'
+6. For text patterns, use appropriate CSS selectors
+
+Available actions:
+- navigate: navigate to a URL
+- click: click an element by CSS selector
+- type: type text in an element by CSS selector
+- extract: extract data using CSS selectors as patterns
+- screenshot: take a screenshot of current page
+- create_tab: create a new browser tab
+- list_tabs: list all open tabs
+- switch_mode: switch between 'fresh' and 'persistent' modes
+- get_mode: get current browser mode
 
 Task: {task}
 
-Generate ONLY valid JSON array with these possible actions:
-- navigate: {{"action": "navigate", "params": {{"url": "URL"}}}}
-- click: {{"action": "click", "params": {{"selector": "CSS_SELECTOR"}}}}
-- type: {{"action": "type", "params": {{"selector": "CSS_SELECTOR", "text": "TEXT"}}}}
-- extract: {{"action": "extract", "params": {{"patterns": {{"key": "CSS_SELECTOR"}}}}}}
-- screenshot: {{"action": "screenshot", "params": {{}}}}
-- create_tab: {{"action": "create_tab", "params": {{}}}}
-- list_tabs: {{"action": "list_tabs", "params": {{}}}}
-- switch_mode: {{"action": "switch_mode", "params": {{"mode": "fresh|persistent"}}}}
-- get_mode: {{"action": "get_mode", "params": {{}}}}
+Generate a JSON action list. Examples:
 
-Return ONLY the JSON array, no other text.
-
-Example:
+For "navigate to google.com":
 [
-  {{"action": "navigate", "params": {{"url": "https://example.com"}}}},
+  {{"action": "navigate", "params": {{"url": "https://google.com"}}}}
+]
+
+For "take a screenshot":
+[
   {{"action": "screenshot", "params": {{}}}}
 ]
 
-Generate actions for: {task}"""
+For "extract all links":
+[
+  {{"action": "extract", "params": {{"patterns": {{"links": "a"}}}}}}
+]
+
+For "create a tab and navigate to example.com":
+[
+  {{"action": "create_tab", "params": {{}}}},
+  {{"action": "navigate", "params": {{"url": "https://example.com"}}}}
+]
+
+Generate actions for task: {task}
+Return ONLY valid JSON array:"""
 
         print(f"🤖 {self.model} is thinking...", end="", flush=True)
         
@@ -90,7 +114,9 @@ Generate actions for: {task}"""
                     "model": self.model,
                     "prompt": prompt,
                     "stream": False,
-                    "temperature": 0.3
+                    "temperature": 0.2,
+                    "top_k": 40,
+                    "top_p": 0.9
                 },
                 timeout=30
             )
@@ -112,9 +138,19 @@ Generate actions for: {task}"""
                 if start_idx != -1 and end_idx > start_idx:
                     json_str = response_text[start_idx:end_idx]
                     actions = json.loads(json_str)
-                    return actions if isinstance(actions, list) else []
-            except json.JSONDecodeError:
-                print(f"⚠️  Could not parse JSON from response")
+                    
+                    # Validate and fix common issues
+                    if isinstance(actions, list):
+                        for action in actions:
+                            # Fix URLs without protocol
+                            if action.get("action") == "navigate":
+                                url = action.get("params", {}).get("url", "")
+                                if url and not url.startswith(("http://", "https://")):
+                                    action["params"]["url"] = f"https://{url}"
+                        return actions
+            except json.JSONDecodeError as e:
+                print(f"⚠️  Could not parse JSON: {e}")
+                print(f"   Response: {response_text[:100]}...")
                 return []
         
         except requests.Timeout:
@@ -151,9 +187,9 @@ Generate actions for: {task}"""
         
         try:
             if method == "GET":
-                resp = self.session.get(url, timeout=10)
+                resp = self.session.get(url, timeout=15)
             else:
-                resp = self.session.post(url, json=body, timeout=10)
+                resp = self.session.post(url, json=body, timeout=15)
             
             return resp.json()
         except Exception as e:
@@ -215,6 +251,8 @@ Generate actions for: {task}"""
                                 print(f"      {key}: {value[:50]}...")
                             else:
                                 print(f"      {key}: {value}")
+                    else:
+                        print(f"   (No data extracted)")
                 
                 # Show tab count if available
                 if action_type == "list_tabs" and "action_result" in result:
@@ -222,6 +260,15 @@ Generate actions for: {task}"""
                     print(f"   📑 Tabs: {len(tabs)}")
                     for tab in tabs:
                         print(f"      - {tab.get('id')}: {tab.get('url')}")
+                
+                # Show URL if navigated
+                if action_type == "navigate" and "browser_state" in result:
+                    url = result["browser_state"].get("url", "")
+                    title = result["browser_state"].get("title", "")
+                    if url:
+                        print(f"      URL: {url}")
+                    if title:
+                        print(f"      Title: {title}")
             else:
                 error = result.get("error", "Unknown error")
                 print(f"   ❌ Failed: {error}")
@@ -238,9 +285,11 @@ Generate actions for: {task}"""
         print("🤖 Llama Task Executor - Interactive Mode")
         print("="*60)
         print("\nGive commands in natural language:")
-        print("  'navigate to example.com'")
+        print("  'navigate to google.com'")
         print("  'take a screenshot'")
+        print("  'extract all links'")
         print("  'create a new tab'")
+        print("  'switch to persistent mode'")
         print("  'quit' to exit\n")
         
         while True:
@@ -266,7 +315,7 @@ Generate actions for: {task}"""
         """Run example tasks"""
         examples = [
             "Navigate to example.com",
-            "Take a screenshot",
+            "Take a screenshot of the current page",
             "Extract all links from the page",
             "Create a new tab",
             "Switch to persistent mode",
