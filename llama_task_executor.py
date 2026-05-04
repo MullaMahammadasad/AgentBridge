@@ -63,18 +63,20 @@ IMPORTANT RULES:
 2. Use only valid CSS selectors - be specific and robust
 3. Return ONLY the JSON array, no other text
 4. Keep responses concise
-5. For Google search: use 'textarea[name="q"]' or 'input.gLFyf' or 'input[title="Search"]'
+5. For Google search: 
+   - Search box: 'textarea[name="q"]' or 'input.gLFyf' or 'input[title="Search"]'
+   - Search button: Press Enter key instead of clicking button (use 'key' action with 'Enter')
 6. For links: use selector 'a'
 7. For text input, use 'text' parameter (not 'value')
-8. Add wait_for actions ONLY before critical interactions
-9. Use wait_for with timeout 8000 for elements
-10. For Google specifically, the search box might be a textarea or input with class gLFyf
+8. For pressing keys, use key action: {{"action": "key", "params": {{"selector": "...", "key": "Enter"}}}}
+9. Avoid clicking search buttons - press Enter instead for Google
 
 Available actions:
 - navigate: navigate to a URL
 - wait_for: wait for an element to be visible (timeout in ms)
 - click: click an element by CSS selector
 - type: type text in an element by CSS selector (use 'text' key)
+- key: press a key in an element (use 'key' parameter: 'Enter', 'Tab', etc)
 - extract: extract data using CSS selectors as patterns
 - screenshot: take a screenshot of current page
 - create_tab: create a new browser tab
@@ -90,7 +92,7 @@ For "navigate to google.com and search for python":
 [
   {{"action": "navigate", "params": {{"url": "https://google.com"}}}},
   {{"action": "type", "params": {{"selector": "textarea[name='q'], input.gLFyf, input[title='Search']", "text": "python"}}}},
-  {{"action": "click", "params": {{"selector": "button[type='submit'], input[type='submit']"}}}}
+  {{"action": "key", "params": {{"selector": "textarea[name='q'], input.gLFyf, input[title='Search']", "key": "Enter"}}}}
 ]
 
 For "navigate to example.com":
@@ -191,6 +193,7 @@ Return ONLY valid JSON array:"""
             "navigate": ("POST", "/navigate", params),
             "click": ("POST", "/click", params),
             "type": ("POST", "/type", params),
+            "key": ("POST", "/key", params),
             "extract": ("POST", "/extract", params),
             "screenshot": ("POST", "/screenshot", {}),
             "create_tab": ("POST", "/tabs/create", {}),
@@ -252,6 +255,8 @@ Return ONLY valid JSON array:"""
                 print(f"   🖱️  Clicking: {params.get('selector')}")
             elif action_type == "type":
                 print(f"   ⌨️  Typing '{params.get('text')}' in: {params.get('selector')}")
+            elif action_type == "key":
+                print(f"   ⌨️  Pressing '{params.get('key')}' in: {params.get('selector')}")
             elif action_type == "extract":
                 print(f"   📊 Extracting data...")
             elif action_type == "screenshot":
