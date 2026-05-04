@@ -150,7 +150,7 @@ async def press_key(req: KeyRequest) -> Dict:
     try:
         browser = _get_active_browser()
         
-        # Map common key names to keyboard codes
+        # Map common key names
         key_map = {
             "Enter": "Enter",
             "Tab": "Tab",
@@ -162,35 +162,26 @@ async def press_key(req: KeyRequest) -> Dict:
             "Backspace": "Backspace",
             "Delete": "Delete",
             "Space": " ",
-            " ": " ",
         }
         
         key = key_map.get(req.key, req.key)
         
-        # Execute keyboard event
-        script = f"""
-        const elem = document.querySelector('{req.selector}');
-        if (elem) {{
-            elem.focus();
-            const event = new KeyboardEvent('keydown', {{
-                key: '{key}',
-                code: '{req.key}',
-                keyCode: {ord(key) if len(key) == 1 else 13},
-                bubbles: true
-            }});
-            elem.dispatchEvent(event);
-            return true;
-        }}
-        return false;
-        """
-        
-        result = await browser.execute_script(script)
+        # Get current page and press key
+        page = browser.bridge.current_page
+        if page:
+            await page.press(req.selector, key)
+            
+            return {
+                "success": True,
+                "action": "key",
+                "selector": req.selector,
+                "key": req.key
+            }
         
         return {
-            "success": result.get("action_result", False),
+            "success": False,
             "action": "key",
-            "selector": req.selector,
-            "key": req.key
+            "error": "No active page"
         }
     
     except Exception as e:
