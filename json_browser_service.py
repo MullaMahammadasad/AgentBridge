@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 from typing import Optional, Dict
 from fastapi import FastAPI, HTTPException, WebSocket, Query
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from fastapi.responses import JSONResponse
 import uvicorn
 
@@ -27,6 +28,12 @@ logger = get_logger(__name__)
 fresh_browser: Optional[JSONBrowser] = None
 persistent_browser: Optional[JSONBrowser] = None
 active_mode: str = "fresh"
+
+
+# Request models
+class WaitForRequest(BaseModel):
+    selector: str
+    timeout: int = 5000
 
 
 @asynccontextmanager
@@ -110,41 +117,47 @@ async def navigate(req: NavigateRequest) -> Dict:
 # ===== Wait For Element =====
 
 @app.post("/wait_for")
-async def wait_for(selector: str = Query(...), timeout: int = Query(5000)) -> Dict:
+async def wait_for(req: WaitForRequest) -> Dict:
     """Wait for element to appear"""
     try:
         browser = _get_active_browser()
         
         # Wait for element with timeout
         start_time = time.time()
-        timeout_seconds = timeout / 1000  # Convert ms to seconds
+        timeout_seconds = req.timeout / 1000  # Convert ms to seconds
         
         while (time.time() - start_time) < timeout_seconds:
             try:
-                # Try to find element
-                result = await browser.execute_script(
-                    f"return document.querySelector('{selector}') !== null"
-                )
+                # Try to find element using execute_script
+                script = f"""
+                try {{
+                    const elem = document.querySelector('{req.selector}');
+                    return elem !== null && elem.offsetHeight > 0;
+                }} catch (e) {{
+                    return false;
+                }}
+                """
+                result = await browser.execute_script(script)
                 
                 if result.get("action_result"):
                     return {
                         "success": True,
                         "action": "wait_for",
-                        "selector": selector,
+                        "selector": req.selector,
                         "message": "Element found"
                     }
-            except:
-                pass
+            except Exception as inner_e:
+                logger.debug(f"Wait check error: {inner_e}")
             
             # Wait a bit before retrying
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(0.3)
         
         # Timeout reached
         return {
             "success": False,
             "action": "wait_for",
-            "selector": selector,
-            "error": f"Element not found after {timeout}ms"
+            "selector": req.selector,
+            "error": f"Element not found after {req.timeout}ms"
         }
     
     except Exception as e:
