@@ -64,12 +64,13 @@ IMPORTANT RULES:
 3. Return ONLY the JSON array, no other text
 4. Keep responses concise
 5. For link extraction, use selector 'a'
-6. For text patterns, use appropriate CSS selectors
+6. For text input, use 'text' parameter (not 'value')
+7. For text patterns, use appropriate CSS selectors
 
 Available actions:
 - navigate: navigate to a URL
 - click: click an element by CSS selector
-- type: type text in an element by CSS selector
+- type: type text in an element by CSS selector (use 'text' key)
 - extract: extract data using CSS selectors as patterns
 - screenshot: take a screenshot of current page
 - create_tab: create a new browser tab
@@ -81,9 +82,16 @@ Task: {task}
 
 Generate a JSON action list. Examples:
 
-For "navigate to google.com":
+For "navigate to google.com and search for python":
 [
-  {{"action": "navigate", "params": {{"url": "https://google.com"}}}}
+  {{"action": "navigate", "params": {{"url": "https://google.com"}}}},
+  {{"action": "type", "params": {{"selector": "input[name='q']", "text": "python"}}}},
+  {{"action": "click", "params": {{"selector": "button[type='submit']"}}}}
+]
+
+For "navigate to example.com":
+[
+  {{"action": "navigate", "params": {{"url": "https://example.com"}}}}
 ]
 
 For "take a screenshot":
@@ -91,15 +99,16 @@ For "take a screenshot":
   {{"action": "screenshot", "params": {{}}}}
 ]
 
-For "extract all links":
+For "extract all links from current page":
 [
   {{"action": "extract", "params": {{"patterns": {{"links": "a"}}}}}}
 ]
 
-For "create a tab and navigate to example.com":
+For "create 3 new tabs":
 [
   {{"action": "create_tab", "params": {{}}}},
-  {{"action": "navigate", "params": {{"url": "https://example.com"}}}}
+  {{"action": "create_tab", "params": {{}}}},
+  {{"action": "create_tab", "params": {{}}}}
 ]
 
 Generate actions for task: {task}
@@ -147,6 +156,13 @@ Return ONLY valid JSON array:"""
                                 url = action.get("params", {}).get("url", "")
                                 if url and not url.startswith(("http://", "https://")):
                                     action["params"]["url"] = f"https://{url}"
+                            
+                            # Fix type action - normalize 'value' to 'text'
+                            if action.get("action") == "type":
+                                params = action.get("params", {})
+                                if "value" in params and "text" not in params:
+                                    params["text"] = params.pop("value")
+                        
                         return actions
             except json.JSONDecodeError as e:
                 print(f"⚠️  Could not parse JSON: {e}")
@@ -230,7 +246,7 @@ Return ONLY valid JSON array:"""
             elif action_type == "click":
                 print(f"   🖱️  Clicking: {params.get('selector')}")
             elif action_type == "type":
-                print(f"   ⌨️  Typing in: {params.get('selector')}")
+                print(f"   ⌨️  Typing '{params.get('text')}' in: {params.get('selector')}")
             elif action_type == "extract":
                 print(f"   📊 Extracting data...")
             elif action_type == "screenshot":
@@ -254,6 +270,8 @@ Return ONLY valid JSON array:"""
                         for key, value in extracted.items():
                             if isinstance(value, str) and len(value) > 50:
                                 print(f"      {key}: {value[:50]}...")
+                            elif isinstance(value, list):
+                                print(f"      {key}: {len(value)} items")
                             else:
                                 print(f"      {key}: {value}")
                     else:
@@ -294,10 +312,10 @@ Return ONLY valid JSON array:"""
         print("🤖 Llama Task Executor - Interactive Mode")
         print("="*60)
         print("\nGive commands in natural language:")
-        print("  'navigate to google.com'")
+        print("  'navigate to google.com and search for python'")
         print("  'take a screenshot'")
         print("  'extract all links'")
-        print("  'create a new tab'")
+        print("  'create 3 new tabs'")
         print("  'switch to persistent mode'")
         print("  'quit' to exit\n")
         
@@ -325,7 +343,7 @@ Return ONLY valid JSON array:"""
         examples = [
             "Navigate to example.com",
             "Extract all links from the page",
-            "Create a new tab",
+            "Create 3 new tabs",
             "Switch to persistent mode",
             "Get current browser mode",
             "List all open tabs",
