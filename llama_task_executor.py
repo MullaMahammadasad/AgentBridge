@@ -66,9 +66,12 @@ IMPORTANT RULES:
 5. For link extraction, use selector 'a'
 6. For text input, use 'text' parameter (not 'value')
 7. For text patterns, use appropriate CSS selectors
+8. Add wait_for actions before typing to ensure elements are ready
+9. Use wait_for with timeout 10000 for elements that need loading time
 
 Available actions:
 - navigate: navigate to a URL
+- wait_for: wait for an element to be visible (timeout in ms, default 5000)
 - click: click an element by CSS selector
 - type: type text in an element by CSS selector (use 'text' key)
 - extract: extract data using CSS selectors as patterns
@@ -85,6 +88,7 @@ Generate a JSON action list. Examples:
 For "navigate to google.com and search for python":
 [
   {{"action": "navigate", "params": {{"url": "https://google.com"}}}},
+  {{"action": "wait_for", "params": {{"selector": "input[name='q']", "timeout": 10000}}}},
   {{"action": "type", "params": {{"selector": "input[name='q']", "text": "python"}}}},
   {{"action": "click", "params": {{"selector": "button[type='submit']"}}}}
 ]
@@ -193,6 +197,7 @@ Return ONLY valid JSON array:"""
             "list_tabs": ("GET", "/tabs/list", {}),
             "switch_mode": ("POST", "/chromium/mode/switch", params),
             "get_mode": ("GET", "/chromium/mode", {}),
+            "wait_for": ("POST", "/wait_for", params),
         }
         
         if action_type not in action_map:
@@ -255,6 +260,8 @@ Return ONLY valid JSON array:"""
                 print(f"   🔄 Switching to: {params.get('mode')} mode")
             elif action_type == "get_mode":
                 print(f"   ℹ️  Getting current mode...")
+            elif action_type == "wait_for":
+                print(f"   ⏳ Waiting for: {params.get('selector')}")
             
             # Execute
             result = self.execute_action(action)
