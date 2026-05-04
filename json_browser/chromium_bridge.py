@@ -1,4 +1,4 @@
-﻿import base64
+import base64
 import os
 from pathlib import Path
 from typing import Optional
@@ -117,6 +117,12 @@ class ChromiumBridge:
         await loc.wait_for(state="attached", timeout=timeout)
         txt = (await loc.inner_text()) or ""
         return expected_substring in txt
+
+    async def press(self, css: str, key: str, timeout: int = 5000) -> None:
+        """Press a key in an element"""
+        loc = self._page().locator(css).first
+        await loc.wait_for(state="attached", timeout=timeout)
+        await loc.press(key, timeout=timeout)
 
     def enable_auto_accept_dialogs(self) -> None:
         p = self._page()
