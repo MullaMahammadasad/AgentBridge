@@ -166,22 +166,14 @@ async def press_key(req: KeyRequest) -> Dict:
         
         key = key_map.get(req.key, req.key)
         
-        # Get current page and press key
-        page = browser.bridge.current_page
-        if page:
-            await page.press(req.selector, key)
-            
-            return {
-                "success": True,
-                "action": "key",
-                "selector": req.selector,
-                "key": req.key
-            }
+        # Use bridge press method
+        await browser.bridge.press(req.selector, key)
         
         return {
-            "success": False,
+            "success": True,
             "action": "key",
-            "error": "No active page"
+            "selector": req.selector,
+            "key": req.key
         }
     
     except Exception as e:
