@@ -107,6 +107,55 @@ async def navigate(req: NavigateRequest) -> Dict:
         raise HTTPException(status_code=400, detail=str(e))
 
 
+# ===== Wait For Element =====
+
+@app.post("/wait_for")
+async def wait_for(selector: str = Query(...), timeout: int = Query(5000)) -> Dict:
+    """Wait for element to appear"""
+    try:
+        browser = _get_active_browser()
+        
+        # Wait for element with timeout
+        start_time = time.time()
+        timeout_seconds = timeout / 1000  # Convert ms to seconds
+        
+        while (time.time() - start_time) < timeout_seconds:
+            try:
+                # Try to find element
+                result = await browser.execute_script(
+                    f"return document.querySelector('{selector}') !== null"
+                )
+                
+                if result.get("action_result"):
+                    return {
+                        "success": True,
+                        "action": "wait_for",
+                        "selector": selector,
+                        "message": "Element found"
+                    }
+            except:
+                pass
+            
+            # Wait a bit before retrying
+            await asyncio.sleep(0.2)
+        
+        # Timeout reached
+        return {
+            "success": False,
+            "action": "wait_for",
+            "selector": selector,
+            "error": f"Element not found after {timeout}ms"
+        }
+    
+    except Exception as e:
+        logger.error(f"Wait for error: {e}")
+        return {
+            "success": False,
+            "action": "wait_for",
+            "error": str(e)
+        }
+
+
 # ===== Click =====
 
 @app.post("/click")
