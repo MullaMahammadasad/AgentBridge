@@ -261,7 +261,7 @@ Return ONLY valid JSON array:"""
             elif action_type == "get_mode":
                 print(f"   ℹ️  Getting current mode...")
             elif action_type == "wait_for":
-                print(f"   ⏳ Waiting for: {params.get('selector')}")
+                print(f"   ⏳ Waiting for: {params.get('selector')} (timeout: {params.get('timeout')}ms)")
             
             # Execute
             result = self.execute_action(action)
