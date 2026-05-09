@@ -101,6 +101,31 @@ Current state JSON: {json.dumps(state, ensure_ascii=False)}
 """.strip()
 
 
+def pagination_fallback_prompt(goal: str, state: Dict[str, Any]) -> str:
+    return f"""
+Return ONLY valid JSON. No markdown. No explanations.
+If pagination fallback is not appropriate, return {{"enabled": false}}.
+
+Schema:
+{{
+  "enabled": true,
+  "item_selector": "css for a single item row/card", 
+  "fields": {{"field_name": "css within the item"}},
+  "next_selector": "css for next-page button/link",
+  "max_pages": 5
+}}
+
+Rules:
+- Use stable selectors (id, data-*, aria-*).
+- Prefer a next button/link that is visible and clickable.
+- fields should describe data you can extract repeatedly on each page.
+- Keep fields minimal.
+
+Goal: {goal}
+Current state JSON: {json.dumps(state, ensure_ascii=False)}
+""".strip()
+
+
 def plan_with_ollama(goal: str, state: Dict[str, Any]) -> Dict[str, Any]:
     prompt = planner_prompt(goal, state)
     r = requests.post(
@@ -110,6 +135,32 @@ def plan_with_ollama(goal: str, state: Dict[str, Any]) -> Dict[str, Any]:
             "prompt": prompt,
             "stream": False,
             "options": {"temperature": 0.1},
+            "format": "json",
+        },
+        timeout=120,
+    )
+    r.raise_for_status()
+    txt = r.json().get("response", "").strip()
+
+    try:
+        return json.loads(txt)
+    except Exception:
+        s = txt.find("{")
+        e = txt.rfind("}")
+        if s >= 0 and e > s:
+            return json.loads(txt[s:e + 1])
+        raise
+
+
+def pagination_fallback_plan(goal: str, state: Dict[str, Any]) -> Dict[str, Any]:
+    prompt = pagination_fallback_prompt(goal, state)
+    r = requests.post(
+        f"{OLLAMA_URL}/api/generate",
+        json={
+            "model": OLLAMA_MODEL,
+            "prompt": prompt,
+            "stream": False,
+            "options": {"temperature": 0.2},
             "format": "json",
         },
         timeout=120,
@@ -204,6 +255,28 @@ def _flatten_for_csv(d: Dict[str, Any], parent_key: str = "", sep: str = ".") ->
     return dict(items)
 
 
+def _normalize_extracted_items(extracted: Dict[str, Any], field_names: List[str]) -> List[Dict[str, Any]]:
+    lists: Dict[str, List[Any]] = {}
+    max_len = 0
+    for name in field_names:
+        value = extracted.get(name, [])
+        if isinstance(value, list):
+            lists[name] = value
+        elif value is None:
+            lists[name] = []
+        else:
+            lists[name] = [value]
+        max_len = max(max_len, len(lists[name]))
+
+    items = []
+    for i in range(max_len):
+        row = {}
+        for name in field_names:
+            row[name] = lists[name][i] if i < len(lists[name]) else None
+        items.append(row)
+    return items
+
+
 def save_artifacts(payload: Dict[str, Any]) -> Dict[str, str]:
     os.makedirs(ARTIFACTS_DIR, exist_ok=True)
     stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
@@ -273,51 +346,71 @@ async def _run_internal(req: RunRequest) -> Dict[str, Any]:
             "final_state": None
         }
 
-    # Universal fallback, paginated extraction:
-   all_quotes = []
-page_num = 1
+    # LLM-driven pagination fallback
+    fallback_plan = None
+    try:
+        fallback_state = await b.get_state()
+        fallback_plan = pagination_fallback_plan(req.goal, fallback_state)
+    except Exception as fallback_err:
+        results.append({
+            "index": len(results) + 1,
+            "error": f"Fallback planner failed: {fallback_err}",
+            "fallback": True,
+        })
 
-try:
-    while True:
-        extract_step = Action(
-            action="extract",
-            params={
-                "patterns": {
-                    "quotes_texts": ".quote .text",
-                    "quotes_authors": ".quote .author"
-                }
-            }
-        )
-        fr = await execute_step_with_retry(b, extract_step, ACTION_RETRY_COUNT)
-        texts = fr["action_result"]["extracted"].get("quotes_texts", [])
-        authors = fr["action_result"]["extracted"].get("quotes_authors", [])
-        if isinstance(texts, str): texts = [texts]
-        if isinstance(authors, str): authors = [authors]
-        for q, a in zip(texts, authors):
-            q_clean = re.sub(r'^[“”"]|[””"]$', '', q).strip() if isinstance(q, str) else q
-            a_clean = a.strip() if isinstance(a, str) else a
-            all_quotes.append({"quote": q_clean, "author": a_clean})
-        print(f"Extracted {len(texts)} quotes on page {page_num}")
-        try:
-            await b.click('.next a', timeout=2000)  # <--- CHANGED (no .page)
-            await b.wait_for('.quote .text', timeout=3000)  # <--- CHANGED (no .page)
-            page_num += 1
-        except Exception as click_exc:
-            print(f"No more next pages after page {page_num}: {click_exc}")
-            break
-except Exception as main_exc:
-    results.append({
-        "index": len(results) + 1,
-        "error": f"Error during autonomous pagination fallback: {main_exc}",
-        "fallback": True,
-    })
+    if fallback_plan and fallback_plan.get("enabled", True):
+        item_selector = fallback_plan.get("item_selector")
+        fields = fallback_plan.get("fields") or {}
+        next_selector = fallback_plan.get("next_selector")
+        max_pages = int(fallback_plan.get("max_pages", 5))
 
-results.append({
-    "index": len(results) + 1,
-    "quotes_array": all_quotes,
-    "total_quotes": len(all_quotes),
-    "fallback": True,
-})
+        if item_selector and fields and next_selector:
+            all_items: List[Dict[str, Any]] = []
+            page_num = 1
+            try:
+                while True:
+                    extract_step = Action(
+                        action="extract",
+                        params={"patterns": fields},
+                    )
+                    fr = await execute_step_with_retry(b, extract_step, ACTION_RETRY_COUNT)
+                    extracted = fr["action_result"]["extracted"]
+                    items = _normalize_extracted_items(extracted, list(fields.keys()))
+                    all_items.extend(items)
+
+                    if page_num >= max_pages:
+                        break
+
+                    try:
+                        await b.click(next_selector, timeout=2000)
+                        await b.wait_for(item_selector, timeout=3000)
+                        page_num += 1
+                    except Exception as click_exc:
+                        results.append({
+                            "index": len(results) + 1,
+                            "warning": f"No more pages after page {page_num}: {click_exc}",
+                            "fallback": True,
+                        })
+                        break
+            except Exception as main_exc:
+                results.append({
+                    "index": len(results) + 1,
+                    "error": f"Error during pagination fallback: {main_exc}",
+                    "fallback": True,
+                })
+
+            results.append({
+                "index": len(results) + 1,
+                "items": all_items,
+                "total_items": len(all_items),
+                "fallback": True,
+            })
+        else:
+            results.append({
+                "index": len(results) + 1,
+                "warning": "Fallback pagination disabled: missing selectors",
+                "fallback": True,
+            })
 
     return {
         "status": "done",
