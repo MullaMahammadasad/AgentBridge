@@ -439,6 +439,7 @@ async def _run_internal(req: RunRequest) -> Dict[str, Any]:
 
                     try:
                         await b.click(next_selector, timeout=2000)
+                        await asyncio.sleep(1)
                         await b.wait_for(item_selector, timeout=3000)
                         page_num += 1
                     except Exception as click_exc:
