@@ -147,6 +147,19 @@ Current state JSON: {json.dumps(state, ensure_ascii=False)}
 """.strip()
 
 
+def _lenient_json_loads(txt: str) -> Dict[str, Any]:
+    cleaned = txt.strip()
+    try:
+        return json.loads(cleaned)
+    except Exception:
+        s = cleaned.find("{")
+        e = cleaned.rfind("}")
+        if s >= 0 and e > s:
+            cleaned = cleaned[s:e + 1]
+        cleaned = re.sub(r",\s*([}\]])", r"\1", cleaned)
+        return json.loads(cleaned)
+
+
 def plan_with_ollama(goal: str, state: Dict[str, Any]) -> Dict[str, Any]:
     prompt = planner_prompt(goal, state)
     r = requests.post(
@@ -163,14 +176,7 @@ def plan_with_ollama(goal: str, state: Dict[str, Any]) -> Dict[str, Any]:
     r.raise_for_status()
     txt = r.json().get("response", "").strip()
 
-    try:
-        return json.loads(txt)
-    except Exception:
-        s = txt.find("{")
-        e = txt.rfind("}")
-        if s >= 0 and e > s:
-            return json.loads(txt[s:e + 1])
-        raise
+    return _lenient_json_loads(txt)
 
 
 def pagination_fallback_plan(goal: str, state: Dict[str, Any]) -> Dict[str, Any]:
@@ -189,14 +195,7 @@ def pagination_fallback_plan(goal: str, state: Dict[str, Any]) -> Dict[str, Any]
     r.raise_for_status()
     txt = r.json().get("response", "").strip()
 
-    try:
-        return json.loads(txt)
-    except Exception:
-        s = txt.find("{")
-        e = txt.rfind("}")
-        if s >= 0 and e > s:
-            return json.loads(txt[s:e + 1])
-        raise
+    return _lenient_json_loads(txt)
 
 
 def _should_force_fallback(goal: str) -> bool:
