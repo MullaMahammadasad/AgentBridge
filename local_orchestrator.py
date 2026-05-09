@@ -29,6 +29,25 @@ REQUIRE_CONFIRM_KEYWORDS = [k.strip().lower() for k in os.getenv("REQUIRE_CONFIR
 ACTION_RETRY_COUNT = int(os.getenv("ACTION_RETRY_COUNT", "1"))
 ARTIFACTS_DIR = os.getenv("ARTIFACTS_DIR", "artifacts")
 
+COMMON_NEXT_SELECTORS = ", ".join([
+    "li.next a",
+    "a[rel='next']",
+    "a[aria-label*='next' i]",
+    "button[aria-label*='next' i]",
+    ".next a",
+    "a.next",
+    ".pagination a[rel='next']",
+])
+
+COMMON_ITEM_SELECTORS = ", ".join([
+    "article",
+    "li",
+    ".card",
+    ".item",
+    ".product",
+    ".quote",
+])
+
 app = FastAPI(title="Local AI Orchestrator (Ollama)")
 browser: Optional[JSONBrowser] = None
 pending_confirmations: Dict[str, Dict[str, Any]] = {}
@@ -105,11 +124,12 @@ def pagination_fallback_prompt(goal: str, state: Dict[str, Any]) -> str:
     return f"""
 Return ONLY valid JSON. No markdown. No explanations.
 If pagination fallback is not appropriate, return {{"enabled": false}}.
+Otherwise, make a best-effort guess even if you are not fully confident.
 
 Schema:
 {{
   "enabled": true,
-  "item_selector": "css for a single item row/card", 
+  "item_selector": "css for a single item row/card",
   "fields": {{"field_name": "css within the item"}},
   "next_selector": "css for next-page button/link",
   "max_pages": 5
@@ -120,6 +140,7 @@ Rules:
 - Prefer a next button/link that is visible and clickable.
 - fields should describe data you can extract repeatedly on each page.
 - Keep fields minimal.
+- If unsure, guess common patterns for next buttons and item cards.
 
 Goal: {goal}
 Current state JSON: {json.dumps(state, ensure_ascii=False)}
@@ -176,6 +197,52 @@ def pagination_fallback_plan(goal: str, state: Dict[str, Any]) -> Dict[str, Any]
         if s >= 0 and e > s:
             return json.loads(txt[s:e + 1])
         raise
+
+
+def _should_force_fallback(goal: str) -> bool:
+    goal_l = goal.lower()
+    return any(k in goal_l for k in ["paginate", "pagination", "all pages", "next page", "next-page", "next button"])
+
+
+def _guess_fields_from_goal(goal: str) -> Dict[str, str]:
+    goal_l = goal.lower()
+    fields: Dict[str, str] = {}
+
+    if "title" in goal_l or "name" in goal_l:
+        fields["title"] = "h1, h2, h3, a[title], [class*='title' i]"
+    if "price" in goal_l or "cost" in goal_l:
+        fields["price"] = ".price, .price_color, [class*='price' i]"
+    if "author" in goal_l:
+        fields["author"] = ".author, [class*='author' i]"
+    if "quote" in goal_l or "text" in goal_l:
+        fields["text"] = ".text, blockquote, q"
+
+    if not fields:
+        fields["text"] = "body"
+
+    return fields
+
+
+def _normalize_extracted_items(extracted: Dict[str, Any], field_names: List[str]) -> List[Dict[str, Any]]:
+    lists: Dict[str, List[Any]] = {}
+    max_len = 0
+    for name in field_names:
+        value = extracted.get(name, [])
+        if isinstance(value, list):
+            lists[name] = value
+        elif value is None:
+            lists[name] = []
+        else:
+            lists[name] = [value]
+        max_len = max(max_len, len(lists[name]))
+
+    items = []
+    for i in range(max_len):
+        row = {}
+        for name in field_names:
+            row[name] = lists[name][i] if i < len(lists[name]) else None
+        items.append(row)
+    return items
 
 
 async def get_browser(profile_name: str, headless: bool) -> JSONBrowser:
@@ -253,28 +320,6 @@ def _flatten_for_csv(d: Dict[str, Any], parent_key: str = "", sep: str = ".") ->
         else:
             items.append((new_key, v))
     return dict(items)
-
-
-def _normalize_extracted_items(extracted: Dict[str, Any], field_names: List[str]) -> List[Dict[str, Any]]:
-    lists: Dict[str, List[Any]] = {}
-    max_len = 0
-    for name in field_names:
-        value = extracted.get(name, [])
-        if isinstance(value, list):
-            lists[name] = value
-        elif value is None:
-            lists[name] = []
-        else:
-            lists[name] = [value]
-        max_len = max(max_len, len(lists[name]))
-
-    items = []
-    for i in range(max_len):
-        row = {}
-        for name in field_names:
-            row[name] = lists[name][i] if i < len(lists[name]) else None
-        items.append(row)
-    return items
 
 
 def save_artifacts(payload: Dict[str, Any]) -> Dict[str, str]:
@@ -358,11 +403,22 @@ async def _run_internal(req: RunRequest) -> Dict[str, Any]:
             "fallback": True,
         })
 
-    if fallback_plan and fallback_plan.get("enabled", True):
-        item_selector = fallback_plan.get("item_selector")
-        fields = fallback_plan.get("fields") or {}
-        next_selector = fallback_plan.get("next_selector")
-        max_pages = int(fallback_plan.get("max_pages", 5))
+    fallback_enabled = bool(fallback_plan) and fallback_plan.get("enabled", True)
+    if not fallback_enabled and _should_force_fallback(req.goal):
+        fallback_enabled = True
+
+    if fallback_enabled:
+        fields = (fallback_plan or {}).get("fields") or _guess_fields_from_goal(req.goal)
+        next_selector = (fallback_plan or {}).get("next_selector") or COMMON_NEXT_SELECTORS
+        item_selector = (fallback_plan or {}).get("item_selector")
+
+        if not item_selector:
+            if fields:
+                item_selector = list(fields.values())[0]
+            else:
+                item_selector = COMMON_ITEM_SELECTORS
+
+        max_pages = int((fallback_plan or {}).get("max_pages", 5))
 
         if item_selector and fields and next_selector:
             all_items: List[Dict[str, Any]] = []
