@@ -112,6 +112,8 @@ Hard rules:
 4) Use stable selectors when possible (id, data-* , semantic classes).
 5) Keep steps minimal and deterministic.
 6) Do not include duplicate navigate steps unless required.
+7) If goal includes explicit selectors (item selector/next selector/extract ...), use them exactly.
+8) Do NOT use select/type unless the goal explicitly mentions form inputs or dropdowns.
 
 Max steps: {MAX_STEPS}
 
@@ -145,6 +147,38 @@ Rules:
 Goal: {goal}
 Current state JSON: {json.dumps(state, ensure_ascii=False)}
 """.strip()
+
+
+def _segment_for_label(text: str, label: str, next_labels: List[str]) -> Optional[str]:
+    next_part = "|".join(re.escape(l) for l in next_labels)
+    pattern = rf"{re.escape(label)}\s*:\s*(.*?)(?=({next_part})\s*:|$)"
+    match = re.search(pattern, text, flags=re.IGNORECASE | re.DOTALL)
+    if not match:
+        return None
+    return match.group(1).strip().rstrip(".")
+
+
+def _extract_forced_selectors(goal: str) -> Dict[str, Any]:
+    item_selector = _segment_for_label(goal, "item selector", ["next selector", "extract", "fields"])
+    next_selector = _segment_for_label(goal, "next selector", ["item selector", "extract", "fields"])
+    extract_segment = _segment_for_label(goal, "extract", ["item selector", "next selector", "fields"])
+
+    fields: Dict[str, str] = {}
+    if extract_segment:
+        for name, selector in re.findall(r"([A-Za-z0-9_\- ]+)\s*:\s*([^,;]+)", extract_segment):
+            key = name.strip().lower().replace(" ", "_")
+            fields[key] = selector.strip().rstrip(".")
+
+    return {
+        "item_selector": item_selector,
+        "next_selector": next_selector,
+        "fields": fields,
+    }
+
+
+def _goal_allows_form_actions(goal: str) -> bool:
+    goal_l = goal.lower()
+    return any(k in goal_l for k in ["form", "input", "type", "enter", "fill", "select", "dropdown", "field", "search"])
 
 
 def _lenient_json_loads(txt: str) -> Dict[str, Any]:
@@ -355,6 +389,17 @@ async def _run_internal(req: RunRequest) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ollama planning failed: {e}")
 
+    if not _goal_allows_form_actions(req.goal):
+        plan.steps = [step for step in plan.steps if step.action not in {"select", "type"}]
+
+    if req.start_url:
+        if plan.steps and plan.steps[0].action == "navigate":
+            plan.steps[0].params["url"] = req.start_url
+        else:
+            plan.steps.insert(0, Action(action="navigate", params={"url": req.start_url}))
+
+    plan_json = {"steps": [step.model_dump() for step in plan.steps]}
+
     if len(plan.steps) > MAX_STEPS:
         raise HTTPException(status_code=400, detail=f"Plan exceeds MAX_STEPS={MAX_STEPS}")
 
@@ -402,14 +447,21 @@ async def _run_internal(req: RunRequest) -> Dict[str, Any]:
             "fallback": True,
         })
 
+    forced = _extract_forced_selectors(req.goal)
+    forced_fields = forced.get("fields") or {}
+    forced_item_selector = forced.get("item_selector")
+    forced_next_selector = forced.get("next_selector")
+
     fallback_enabled = bool(fallback_plan) and fallback_plan.get("enabled", True)
     if not fallback_enabled and _should_force_fallback(req.goal):
         fallback_enabled = True
+    if forced_fields or forced_item_selector or forced_next_selector:
+        fallback_enabled = True
 
     if fallback_enabled:
-        fields = (fallback_plan or {}).get("fields") or _guess_fields_from_goal(req.goal)
-        next_selector = (fallback_plan or {}).get("next_selector") or COMMON_NEXT_SELECTORS
-        item_selector = (fallback_plan or {}).get("item_selector")
+        fields = forced_fields or (fallback_plan or {}).get("fields") or _guess_fields_from_goal(req.goal)
+        next_selector = forced_next_selector or (fallback_plan or {}).get("next_selector") or COMMON_NEXT_SELECTORS
+        item_selector = forced_item_selector or (fallback_plan or {}).get("item_selector")
 
         if not item_selector:
             if fields:
