@@ -165,7 +165,14 @@ def _extract_forced_selectors(goal: str) -> Dict[str, Any]:
 
     fields: Dict[str, str] = {}
     if extract_segment:
-        for name, selector in re.findall(r"([A-Za-z0-9_\- ]+)\s*:\s*([^,;]+)", extract_segment):
+        parts = re.split(r"\s*(?:,|;|\band\b)\s*", extract_segment, flags=re.IGNORECASE)
+        for part in parts:
+            if not part.strip():
+                continue
+            match = re.match(r"^\s*([^:]+?)\s*:\s*(.+)\s*$", part)
+            if not match:
+                continue
+            name, selector = match.groups()
             key = name.strip().lower().replace(" ", "_")
             fields[key] = selector.strip().rstrip(".")
 
@@ -178,7 +185,11 @@ def _extract_forced_selectors(goal: str) -> Dict[str, Any]:
 
 def _goal_allows_form_actions(goal: str) -> bool:
     goal_l = goal.lower()
-    return any(k in goal_l for k in ["form", "input", "type", "enter", "fill", "select", "dropdown", "field", "search"])
+    if re.search(r"\b(form|input|enter|fill|dropdown|search)\b", goal_l):
+        return True
+    if re.search(r"\bselect\b", goal_l) and "selector" not in goal_l:
+        return True
+    return False
 
 
 def _lenient_json_loads(txt: str) -> Dict[str, Any]:
