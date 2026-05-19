@@ -255,7 +255,15 @@ def pagination_fallback_plan(goal: str, state: Dict[str, Any]) -> Dict[str, Any]
 
 def _should_force_fallback(goal: str) -> bool:
     goal_l = goal.lower()
-    return any(k in goal_l for k in ["paginate", "pagination", "all pages", "next page", "next-page", "next button"])
+    return any(k in goal_l for k in [
+        "paginate",
+        "pagination",
+        "all pages",
+        "across all pages",
+        "next page",
+        "next-page",
+        "next button",
+    ])
 
 
 def _guess_fields_from_goal(goal: str) -> Dict[str, str]:
@@ -493,11 +501,12 @@ async def _run_internal(req: RunRequest) -> Dict[str, Any]:
         next_selector = forced_next_selector or (fallback_plan or {}).get("next_selector") or COMMON_NEXT_SELECTORS
         item_selector = forced_item_selector or (fallback_plan or {}).get("item_selector")
 
+        if not fields:
+            fields = _guess_fields_from_goal(req.goal)
+        if not next_selector:
+            next_selector = COMMON_NEXT_SELECTORS
         if not item_selector:
-            if fields:
-                item_selector = list(fields.values())[0]
-            else:
-                item_selector = COMMON_ITEM_SELECTORS
+            item_selector = COMMON_ITEM_SELECTORS
 
         max_pages = int((fallback_plan or {}).get("max_pages", 5))
 
