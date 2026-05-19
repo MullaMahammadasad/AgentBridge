@@ -202,6 +202,44 @@ def _extract_first_url(goal: str) -> Optional[str]:
     return match.group(0).rstrip(".")
 
 
+def _first_selector(selector: Optional[str]) -> Optional[str]:
+    if not selector:
+        return selector
+    return selector.split(",")[0].strip()
+
+
+def _prefix_fields_with_item_selector(fields: Dict[str, str], item_selector: Optional[str]) -> Dict[str, str]:
+    if not item_selector:
+        return fields
+    prefixed: Dict[str, str] = {}
+    for key, selector in fields.items():
+        if item_selector in selector:
+            prefixed[key] = selector
+            continue
+        parts = [p.strip() for p in selector.split(",") if p.strip()]
+        prefixed_parts = [f"{item_selector} {p}" for p in parts]
+        prefixed[key] = ", ".join(prefixed_parts) if prefixed_parts else selector
+    return prefixed
+
+
+def _fallback_field_defaults(fields: Dict[str, str]) -> Dict[str, str]:
+    alt = dict(fields)
+    if "title" in alt:
+        alt["title"] = "h3 a"
+    if "price" in alt:
+        alt["price"] = ".price_color"
+    return alt
+
+
+def _extraction_is_empty(extracted: Dict[str, Any]) -> bool:
+    for value in extracted.values():
+        if isinstance(value, list) and len(value) > 0:
+            return False
+        if value not in (None, [], ""):
+            return False
+    return True
+
+
 def _lenient_json_loads(txt: str) -> Dict[str, Any]:
     cleaned = txt.strip()
     try:
@@ -499,29 +537,40 @@ async def _run_internal(req: RunRequest) -> Dict[str, Any]:
     if fallback_enabled:
         fields = forced_fields or (fallback_plan or {}).get("fields") or _guess_fields_from_goal(req.goal)
         next_selector = forced_next_selector or (fallback_plan or {}).get("next_selector") or COMMON_NEXT_SELECTORS
-        item_selector = forced_item_selector or (fallback_plan or {}).get("item_selector")
+        item_selector_raw = forced_item_selector or (fallback_plan or {}).get("item_selector")
 
         if not fields:
             fields = _guess_fields_from_goal(req.goal)
         if not next_selector:
             next_selector = COMMON_NEXT_SELECTORS
-        if not item_selector:
-            item_selector = COMMON_ITEM_SELECTORS
+        if not item_selector_raw:
+            item_selector_raw = COMMON_ITEM_SELECTORS
 
-        max_pages = int((fallback_plan or {}).get("max_pages", 5))
+        item_selector = _first_selector(item_selector_raw) or item_selector_raw
 
         if item_selector and fields and next_selector:
             all_items: List[Dict[str, Any]] = []
             page_num = 1
             try:
                 while True:
+                    effective_fields = _prefix_fields_with_item_selector(fields, item_selector)
                     extract_step = Action(
                         action="extract",
-                        params={"patterns": fields},
+                        params={"patterns": effective_fields},
                     )
                     fr = await execute_step_with_retry(b, extract_step, ACTION_RETRY_COUNT)
                     extracted = fr["action_result"]["extracted"]
-                    items = _normalize_extracted_items(extracted, list(fields.keys()))
+
+                    if _extraction_is_empty(extracted):
+                        retry_fields = _prefix_fields_with_item_selector(_fallback_field_defaults(fields), item_selector)
+                        extract_step = Action(
+                            action="extract",
+                            params={"patterns": retry_fields},
+                        )
+                        fr = await execute_step_with_retry(b, extract_step, ACTION_RETRY_COUNT)
+                        extracted = fr["action_result"]["extracted"]
+
+                    items = _normalize_extracted_items(extracted, list(effective_fields.keys()))
                     all_items.extend(items)
 
                     if page_num >= max_pages:
