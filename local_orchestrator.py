@@ -240,6 +240,17 @@ def _extraction_is_empty(extracted: Dict[str, Any]) -> bool:
     return True
 
 
+def _sanitize_plan_steps(steps: List[Action]) -> List[Action]:
+    sanitized: List[Action] = []
+    for step in steps:
+        if step.action == "extract":
+            patterns = (step.params or {}).get("patterns")
+            if not isinstance(patterns, dict):
+                continue
+        sanitized.append(step)
+    return sanitized
+
+
 def _lenient_json_loads(txt: str) -> Dict[str, Any]:
     cleaned = txt.strip()
     try:
@@ -467,6 +478,8 @@ async def _run_internal(req: RunRequest) -> Dict[str, Any]:
 
     if not _goal_allows_form_actions(req.goal):
         plan.steps = [step for step in plan.steps if step.action not in {"select", "type"}]
+
+    plan.steps = _sanitize_plan_steps(plan.steps)
 
     if req.start_url:
         if plan.steps and plan.steps[0].action == "navigate":
