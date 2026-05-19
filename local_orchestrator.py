@@ -29,6 +29,9 @@ REQUIRE_CONFIRM_KEYWORDS = [k.strip().lower() for k in os.getenv("REQUIRE_CONFIR
 ACTION_RETRY_COUNT = int(os.getenv("ACTION_RETRY_COUNT", "1"))
 ARTIFACTS_DIR = os.getenv("ARTIFACTS_DIR", "artifacts")
 
+AUTONOMOUS_MODE = os.getenv("AUTONOMOUS_MODE", "false").lower() in {"1", "true", "yes"}
+AUTONOMOUS_HEADLESS = os.getenv("AUTONOMOUS_HEADLESS", "true").lower() in {"1", "true", "yes"}
+
 COMMON_NEXT_SELECTORS = ", ".join([
     "li.next a",
     "a[rel='next']",
@@ -190,6 +193,13 @@ def _goal_allows_form_actions(goal: str) -> bool:
     if re.search(r"\bselect\b", goal_l) and "selector" not in goal_l:
         return True
     return False
+
+
+def _extract_first_url(goal: str) -> Optional[str]:
+    match = re.search(r"https?://[^\s)\]]+", goal)
+    if not match:
+        return None
+    return match.group(0).rstrip(".")
 
 
 def _lenient_json_loads(txt: str) -> Dict[str, Any]:
@@ -387,6 +397,15 @@ def save_artifacts(payload: Dict[str, Any]) -> Dict[str, str]:
 
 
 async def _run_internal(req: RunRequest) -> Dict[str, Any]:
+    if AUTONOMOUS_MODE:
+        req.require_confirmation = False
+        if AUTONOMOUS_HEADLESS:
+            req.headless = True
+        if not req.start_url:
+            req.start_url = _extract_first_url(req.goal)
+        if not req.start_url:
+            raise HTTPException(status_code=400, detail="Autonomous mode requires start_url or a URL in goal.")
+
     b = await get_browser(req.profile_name, req.headless)
 
     if req.start_url and not is_domain_allowed(req.start_url):
