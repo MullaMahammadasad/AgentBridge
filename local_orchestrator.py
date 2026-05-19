@@ -547,6 +547,7 @@ async def _run_internal(req: RunRequest) -> Dict[str, Any]:
             item_selector_raw = COMMON_ITEM_SELECTORS
 
         item_selector = _first_selector(item_selector_raw) or item_selector_raw
+        max_pages = int((fallback_plan or {}).get("max_pages", 5))
 
         if item_selector and fields and next_selector:
             all_items: List[Dict[str, Any]] = []
