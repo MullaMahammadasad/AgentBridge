@@ -253,6 +253,18 @@ def _sanitize_plan_steps(steps: List[Action]) -> List[Action]:
     return sanitized
 
 
+def _dedupe_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    seen = set()
+    deduped: List[Dict[str, Any]] = []
+    for item in items:
+        key = (item.get("title"), item.get("price"))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+    return deduped
+
+
 def _lenient_json_loads(txt: str) -> Dict[str, Any]:
     cleaned = txt.strip()
     try:
@@ -613,6 +625,8 @@ async def _run_internal(req: RunRequest) -> Dict[str, Any]:
                     "error": f"Error during pagination fallback: {main_exc}",
                     "fallback": True,
                 })
+
+            all_items = _dedupe_items(all_items)
 
             results.append({
                 "index": len(results) + 1,
