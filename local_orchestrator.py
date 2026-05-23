@@ -210,6 +210,29 @@ def _first_selector(selector: Optional[str]) -> Optional[str]:
     return selector.split(",")[0].strip()
 
 
+def _strip_css_pseudo(selector: str) -> str:
+    return re.sub(r"::[a-zA-Z-]+", "", selector)
+
+
+def _sanitize_selector(selector: str) -> str:
+    selector = _strip_css_pseudo(selector)
+    selector = selector.replace(":text", "")
+    return selector.strip()
+
+
+def _sanitize_fields(fields: Dict[str, Any]) -> Dict[str, Any]:
+    sanitized: Dict[str, Any] = {}
+    for key, selector in fields.items():
+        if isinstance(selector, dict):
+            css = selector.get("css")
+            if isinstance(css, str):
+                selector = {**selector, "css": _sanitize_selector(css)}
+            sanitized[key] = selector
+        else:
+            sanitized[key] = _sanitize_selector(str(selector))
+    return sanitized
+
+
 def _prefix_fields_with_item_selector(fields: Dict[str, Any], item_selector: Optional[str]) -> Dict[str, Any]:
     if not item_selector:
         return fields
@@ -267,6 +290,7 @@ def _sanitize_plan_steps(steps: List[Action]) -> List[Action]:
             patterns = (step.params or {}).get("patterns")
             if not isinstance(patterns, dict):
                 continue
+            step.params["patterns"] = _sanitize_fields(patterns)
         sanitized.append(step)
     return sanitized
 
@@ -603,7 +627,7 @@ async def _run_internal(req: RunRequest) -> Dict[str, Any]:
         })
 
     forced = _extract_forced_selectors(req.goal)
-    forced_fields = forced.get("fields") or {}
+    forced_fields = _sanitize_fields(forced.get("fields") or {})
     forced_item_selector = forced.get("item_selector")
     forced_next_selector = forced.get("next_selector")
 
@@ -614,12 +638,12 @@ async def _run_internal(req: RunRequest) -> Dict[str, Any]:
         fallback_enabled = True
 
     if fallback_enabled:
-        fields = forced_fields or (fallback_plan or {}).get("fields") or _guess_fields_from_goal(req.goal)
-        next_selector = forced_next_selector or (fallback_plan or {}).get("next_selector") or COMMON_NEXT_SELECTORS
-        item_selector_raw = forced_item_selector or (fallback_plan or {}).get("item_selector")
+        fields = forced_fields or _sanitize_fields((fallback_plan or {}).get("fields") or _guess_fields_from_goal(req.goal))
+        next_selector = forced_next_selector or _sanitize_selector((fallback_plan or {}).get("next_selector") or COMMON_NEXT_SELECTORS)
+        item_selector_raw = forced_item_selector or _sanitize_selector((fallback_plan or {}).get("item_selector") or COMMON_ITEM_SELECTORS)
 
         if not fields:
-            fields = _guess_fields_from_goal(req.goal)
+            fields = _sanitize_fields(_guess_fields_from_goal(req.goal))
         if not next_selector:
             next_selector = COMMON_NEXT_SELECTORS
         if not item_selector_raw:
