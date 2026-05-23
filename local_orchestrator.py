@@ -283,6 +283,37 @@ def _dedupe_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return deduped
 
 
+def _normalize_text(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    replacements = {
+        "Â£": "£",
+        "â??": "’",
+        "â€™": "’",
+        "â€œ": "“",
+        "â€�": "”",
+        "â€“": "–",
+        "â€”": "—",
+        "Ã©": "é",
+        "Ã¨": "è",
+        "Ã¢": "â",
+        "Ã¶": "ö",
+        "Ã¼": "ü",
+        "Ã¤": "ä",
+        "ÃŸ": "ß",
+    }
+    for bad, good in replacements.items():
+        value = value.replace(bad, good)
+    return value
+
+
+def _normalize_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    normalized: List[Dict[str, Any]] = []
+    for item in items:
+        normalized.append({k: _normalize_text(v) for k, v in item.items()})
+    return normalized
+
+
 def _lenient_json_loads(txt: str) -> Dict[str, Any]:
     cleaned = txt.strip()
     try:
@@ -519,6 +550,9 @@ async def _run_internal(req: RunRequest) -> Dict[str, Any]:
         else:
             plan.steps.insert(0, Action(action="navigate", params={"url": req.start_url}))
 
+    if _should_force_fallback(req.goal):
+        plan.steps = [step for step in plan.steps if step.action == "navigate"]
+
     plan_json = {"steps": [step.model_dump() for step in plan.steps]}
 
     if len(plan.steps) > MAX_STEPS:
@@ -538,7 +572,7 @@ async def _run_internal(req: RunRequest) -> Dict[str, Any]:
             results.append({"index": i, "step": step.model_dump(), "result": r})
         except Exception as e:
             results.append({"index": i, "step": step.model_dump(), "error": str(e)})
-            break
+            continue
 
     # Defensive: check browser is alive before fallback
     try:
@@ -646,7 +680,7 @@ async def _run_internal(req: RunRequest) -> Dict[str, Any]:
                     "fallback": True,
                 })
 
-            all_items = _dedupe_items(all_items)
+            all_items = _normalize_items(_dedupe_items(all_items))
 
             results.append({
                 "index": len(results) + 1,
@@ -701,7 +735,7 @@ async def confirm_run(req: ConfirmRequest):
             results.append({"index": i, "step": step.model_dump(), "result": r})
         except Exception as e:
             results.append({"index": i, "step": step.model_dump(), "error": str(e)})
-            break
+            continue
 
     pending_confirmations.pop(req.run_id, None)
     return {"status": "done", "results": results, "final_state": await b.get_state()}
