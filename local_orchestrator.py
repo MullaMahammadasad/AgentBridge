@@ -210,11 +210,19 @@ def _first_selector(selector: Optional[str]) -> Optional[str]:
     return selector.split(",")[0].strip()
 
 
-def _prefix_fields_with_item_selector(fields: Dict[str, str], item_selector: Optional[str]) -> Dict[str, str]:
+def _prefix_fields_with_item_selector(fields: Dict[str, Any], item_selector: Optional[str]) -> Dict[str, Any]:
     if not item_selector:
         return fields
-    prefixed: Dict[str, str] = {}
+    prefixed: Dict[str, Any] = {}
     for key, selector in fields.items():
+        if isinstance(selector, dict):
+            css = selector.get("css")
+            if css and item_selector not in css:
+                parts = [p.strip() for p in css.split(",") if p.strip()]
+                prefixed_parts = [f"{item_selector} {p}" for p in parts]
+                selector = {**selector, "css": ", ".join(prefixed_parts) if prefixed_parts else css}
+            prefixed[key] = selector
+            continue
         if item_selector in selector:
             prefixed[key] = selector
             continue
@@ -224,12 +232,22 @@ def _prefix_fields_with_item_selector(fields: Dict[str, str], item_selector: Opt
     return prefixed
 
 
-def _fallback_field_defaults(fields: Dict[str, str]) -> Dict[str, str]:
+def _ensure_list_fields(fields: Dict[str, Any]) -> Dict[str, Any]:
+    normalized: Dict[str, Any] = {}
+    for key, selector in fields.items():
+        if isinstance(selector, dict):
+            normalized[key] = {"all": True, **selector}
+            continue
+        normalized[key] = {"css": selector, "all": True}
+    return normalized
+
+
+def _fallback_field_defaults(fields: Dict[str, Any]) -> Dict[str, Any]:
     alt = dict(fields)
     if "title" in alt:
-        alt["title"] = "h3 a"
+        alt["title"] = "article.product_pod h3 a"
     if "price" in alt:
-        alt["price"] = ".price_color"
+        alt["price"] = "article.product_pod .price_color"
     return alt
 
 
@@ -334,9 +352,9 @@ def _guess_fields_from_goal(goal: str) -> Dict[str, str]:
     fields: Dict[str, str] = {}
 
     if "title" in goal_l or "name" in goal_l:
-        fields["title"] = "h1, h2, h3, a[title], [class*='title' i]"
+        fields["title"] = "article.product_pod h3 a"
     if "price" in goal_l or "cost" in goal_l:
-        fields["price"] = ".price, .price_color, [class*='price' i]"
+        fields["price"] = "article.product_pod .price_color"
     if "author" in goal_l:
         fields["author"] = ".author, [class*='author' i]"
     if "quote" in goal_l or "text" in goal_l:
@@ -584,7 +602,7 @@ async def _run_internal(req: RunRequest) -> Dict[str, Any]:
             page_num = 1
             try:
                 while True:
-                    effective_fields = _prefix_fields_with_item_selector(fields, item_selector)
+                    effective_fields = _ensure_list_fields(_prefix_fields_with_item_selector(fields, item_selector))
                     extract_step = Action(
                         action="extract",
                         params={"patterns": effective_fields},
@@ -593,7 +611,9 @@ async def _run_internal(req: RunRequest) -> Dict[str, Any]:
                     extracted = fr["action_result"]["extracted"]
 
                     if _extraction_is_empty(extracted):
-                        retry_fields = _prefix_fields_with_item_selector(_fallback_field_defaults(fields), item_selector)
+                        retry_fields = _ensure_list_fields(
+                            _prefix_fields_with_item_selector(_fallback_field_defaults(fields), item_selector)
+                        )
                         extract_step = Action(
                             action="extract",
                             params={"patterns": retry_fields},
