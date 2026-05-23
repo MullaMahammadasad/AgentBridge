@@ -28,6 +28,7 @@ MAX_STEPS = int(os.getenv("MAX_STEPS", "20"))
 REQUIRE_CONFIRM_KEYWORDS = [k.strip().lower() for k in os.getenv("REQUIRE_CONFIRM_KEYWORDS", "").split(",") if k.strip()]
 ACTION_RETRY_COUNT = int(os.getenv("ACTION_RETRY_COUNT", "1"))
 ARTIFACTS_DIR = os.getenv("ARTIFACTS_DIR", "artifacts")
+PAGINATION_MAX_PAGES = int(os.getenv("PAGINATION_MAX_PAGES", "50"))
 
 AUTONOMOUS_MODE = os.getenv("AUTONOMOUS_MODE", "false").lower() in {"1", "true", "yes"}
 AUTONOMOUS_HEADLESS = os.getenv("AUTONOMOUS_HEADLESS", "true").lower() in {"1", "true", "yes"}
@@ -43,6 +44,7 @@ COMMON_NEXT_SELECTORS = ", ".join([
 ])
 
 COMMON_ITEM_SELECTORS = ", ".join([
+    "article.product_pod",
     "article",
     "li",
     ".card",
@@ -560,7 +562,10 @@ async def _run_internal(req: RunRequest) -> Dict[str, Any]:
             item_selector_raw = COMMON_ITEM_SELECTORS
 
         item_selector = _first_selector(item_selector_raw) or item_selector_raw
-        max_pages = int((fallback_plan or {}).get("max_pages", 5))
+        max_pages = int((fallback_plan or {}).get("max_pages", PAGINATION_MAX_PAGES))
+
+        if _should_force_fallback(req.goal):
+            max_pages = max(max_pages, PAGINATION_MAX_PAGES)
 
         if item_selector and fields and next_selector:
             all_items: List[Dict[str, Any]] = []
