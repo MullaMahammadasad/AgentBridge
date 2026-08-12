@@ -1,10 +1,10 @@
 # AgentBridge      
 # JSON Browser - AI-Native Structured Web Interface
 
-An intelligent browser designed for AI agents that replaces traditional browser automation with structured JSON operations [1].
+An intelligent browser designed for AI agents that replaces traditional browser automation with structured JSON operations.
 
 ### Vision
-Instead of building automation for human-facing UIs, this browser provides an API-first structured web layer [2, 3]:
+Instead of building automation for human-facing UIs, this browser provides an API-first structured web layer :
 
 ```text
 AI Agent 
