@@ -54,6 +54,14 @@ git clone https://github.com/youruser/agentbridge.git
 # Install dependencies
 pip install -r requirements.txt
 
+# Configure runtime credentials in environment variables (never hardcode)
+export HEROKU_LOGIN_USERNAME="..."
+export HEROKU_LOGIN_PASSWORD="..."
+export SANDBOX_USERNAME="..."
+export SANDBOX_PASSWORD="..."
+export QUOTES_LOGIN_USERNAME="..."
+export QUOTES_LOGIN_PASSWORD="..."
+
 # Launch the Dual-Layer Service
 python json_browser_service.py
 ```

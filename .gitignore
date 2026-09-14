@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.env
+.env.*
+profiles/
+logs/*.log
+artifacts/*.json
+artifacts/*.csv
+state/*.json
+downloads/*
+!downloads/test_upload.txt

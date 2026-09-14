@@ -8,6 +8,7 @@ import json
 import time
 import sys
 from typing import List, Dict, Any
+from json_browser.security import is_sensitive_key, mask_value
 
 # Configuration
 BROWSER_API_URL = "http://127.0.0.1:8000"
@@ -237,7 +238,7 @@ Return ONLY valid JSON array:"""
         
         print(f"✅ Generated {len(actions)} action(s):")
         for i, action in enumerate(actions, 1):
-            print(f"   {i}. {action.get('action', 'unknown')} {action.get('params', {})}")
+            print(f"   {i}. {action.get('action', 'unknown')} {self._redact_params(action.get('params', {}))}")
         
         print(f"\n🚀 Executing actions...\n")
         
@@ -254,7 +255,10 @@ Return ONLY valid JSON array:"""
             elif action_type == "click":
                 print(f"   🖱️  Clicking: {params.get('selector')}")
             elif action_type == "type":
-                print(f"   ⌨️  Typing '{params.get('text')}' in: {params.get('selector')}")
+                text = params.get("text")
+                selector = str(params.get("selector", "")).lower()
+                display_text = mask_value(text) if ("password" in selector or is_sensitive_key("text")) else text
+                print(f"   ⌨️  Typing '{display_text}' in: {params.get('selector')}")
             elif action_type == "key":
                 print(f"   ⌨️  Pressing '{params.get('key')}' in: {params.get('selector')}")
             elif action_type == "extract":
@@ -317,6 +321,15 @@ Return ONLY valid JSON array:"""
         print(f"{'='*60}")
         print(f"✅ Task completed!")
         print(f"{'='*60}\n")
+
+    def _redact_params(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        redacted = {}
+        for key, value in params.items():
+            if is_sensitive_key(str(key)):
+                redacted[key] = "***"
+            else:
+                redacted[key] = value
+        return redacted
     
     def interactive_mode(self) -> None:
         """Interactive task entry mode"""

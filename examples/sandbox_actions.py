@@ -7,7 +7,17 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from json_browser import JSONBrowser
 
 
+def get_required_env(name: str) -> str:
+    value = os.getenv(name)
+    if not value:
+        raise RuntimeError(f"Missing required env var: {name}")
+    return value
+
+
 async def main():
+    username = get_required_env("SANDBOX_USERNAME")
+    password = get_required_env("SANDBOX_PASSWORD")
+
     b = JSONBrowser(headless=False)
     await b.initialize()
 
@@ -17,9 +27,8 @@ async def main():
         # Alerts
         await b.auto_accept_dialogs()
 
-        # Login admin/admin
-        await b.type("#username", "admin")
-        await b.type("#password", "admin")
+        await b.type("#username", username)
+        await b.type("#password", password)
         await b.click("#loginBtn")
 
         login = await b.extract({"login_result": "#loginResult"})

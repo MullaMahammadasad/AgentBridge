@@ -10,7 +10,7 @@ from json_browser import JSONBrowser
 
 async def main():
     downloads_dir = str(Path("downloads").absolute())
-    state_path = str(Path("state") / "storage.json")
+    state_path = os.getenv("BROWSER_STORAGE_STATE_PATH", str((Path.home() / ".agentbridge" / "state" / "storage.json").absolute()))
 
     b = JSONBrowser(headless=False)
     await b.initialize(storage_state_path=state_path, downloads_dir=downloads_dir)

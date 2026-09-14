@@ -15,6 +15,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from json_browser import JSONBrowser
+from json_browser.security import sanitize_data
 
 if sys.platform.startswith("win"):
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
@@ -521,6 +522,7 @@ def _flatten_for_csv(d: Dict[str, Any], parent_key: str = "", sep: str = ".") ->
 
 
 def save_artifacts(payload: Dict[str, Any]) -> Dict[str, str]:
+    sanitized_payload = sanitize_data(payload)
     os.makedirs(ARTIFACTS_DIR, exist_ok=True)
     stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     rid = uuid.uuid4().hex[:8]
@@ -528,10 +530,10 @@ def save_artifacts(payload: Dict[str, Any]) -> Dict[str, str]:
 
     json_path = os.path.join(ARTIFACTS_DIR, f"{base}.json")
     with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
+        json.dump(sanitized_payload, f, ensure_ascii=False, indent=2)
 
     csv_path = os.path.join(ARTIFACTS_DIR, f"{base}.csv")
-    row = _flatten_for_csv(payload)
+    row = _flatten_for_csv(sanitized_payload)
     with open(csv_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=list(row.keys()))
         writer.writeheader()
