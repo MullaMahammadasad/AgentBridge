@@ -1,5 +1,5 @@
 # AgentBridge: AI-Native Task Execution & Commerce Platform
-#LISTEN TO AUDIO FILE FOR BETTER UNDERSTANDING
+# LISTEN TO AUDIO FILE FOR BETTER UNDERSTANDING
 > **"Stop making AI use the human web. Build a web made for AI."**
 > AgentBridge is a machine-native infrastructure layer designed to convert the human-oriented World Wide Web into a structured JSON/CSV layer, allowing AI agents to navigate, search, and transact autonomously.
 
